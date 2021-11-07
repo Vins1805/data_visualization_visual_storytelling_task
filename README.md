@@ -5,7 +5,7 @@ __Portfolio Examination__
 Age of Empires 4 - Due to the release one week ago
 
 ## Possible Questions
-1. aoe4 compared to aoe2, aoe3 and sc2? (did this games decline?)
+1. aoe4 player count compared to aoe2, aoe3 and sc2? (did this games decline?)
 2. change of played country since the release?
 3. decline or increase of population since release? (viewers and players)
 4. which country has the most share in aoe4
@@ -13,6 +13,7 @@ Age of Empires 4 - Due to the release one week ago
 6. who are the top players? (aoe2, aoe3, sc2 pros?)
    * classify players after the leader board
    * classify streamers after the most viewed game the last x months
+7. aoe4 ranked on twitch compared to aoe2, aoe3 and sc2?
 
 ## Data Sources:
 * sadly no aoe4 api
