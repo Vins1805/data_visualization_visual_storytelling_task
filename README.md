@@ -11,11 +11,11 @@ Age of Empires 4 - Due to the release one week ago
 4. which country has the most share in aoe4
 5. streamer count and viewer count changes?
 6. who are the top players? (aoe2, aoe3, sc2 pros?)
-  -classify players after the leader board
-  -classify streamers after the most viewed game the last x months
+  * classify players after the leader board
+  * classify streamers after the most viewed game the last x months
 
 # Data Sources:
--sadly no aoe4 api
--aoe4 leader board? (webscraping)
--twitch api
--steam/steamDB api
+* sadly no aoe4 api
+* aoe4 leader board? (webscraping)
+* twitch api
+* steam/steamDB api
