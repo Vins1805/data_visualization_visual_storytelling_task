@@ -1,0 +1,267 @@
+---
+title: "Air Pollution"
+author: "Vincent Zumbansen"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    df_print: paged
+    code_folding: show  
+    highlight: tango
+    number_sections: true
+urlcolor: blue
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Libraries
+
+```{r, warning=FALSE, message=FALSE}
+library(saqgetr)
+library(tidyverse)
+library(stringr)
+library(lubridate)
+library(gridExtra)
+```
+
+# Available Data
+
+```{r}
+# General data availability per site 
+sites <- get_saq_sites()
+sites_kiel <- sites %>% filter(str_detect(sites$site_name, "^[Kk]iel\\b"))
+sites
+```
+
+
+```{r}
+# Detailed data availabilty 
+processes <- get_saq_processes()
+#unique(processes$variable_long)
+processes
+```
+
+
+```{r}
+# NO2 Data for Kiel Theodor-Heuß-Ring since 2012.
+df <- get_saq_observations(site = "desh052", variable = "no2", start = 2012, end = 2021)
+df
+```
+
+```{r}
+getSeason <- function(DATES) {
+    WS <- as.Date("2012-12-15", format = "%Y-%m-%d") # Winter Solstice
+    SE <- as.Date("2012-3-15",  format = "%Y-%m-%d") # Spring Equinox
+    SS <- as.Date("2012-6-15",  format = "%Y-%m-%d") # Summer Solstice
+    FE <- as.Date("2012-9-15",  format = "%Y-%m-%d") # Fall Equinox
+
+    # Convert dates from any year to 2012 dates
+    d <- as.Date(strftime(DATES, format="2012-%m-%d"))
+
+    ifelse (d >= WS | d < SE, "Winter",
+      ifelse (d >= SE & d < SS, "Spring",
+        ifelse (d >= SS & d < FE, "Summer", "Fall")))
+}
+```
+
+# Clean up data
+* transform dates
+* transform units
+* remove NA records
+
+```{r}
+# check for NA processes
+#x <- processes %>% group_by(variable) %>% summarise(n=n_distinct(variable_long)) %>% filter(n>1)
+#processes %>% filter(variable==x$variable) %>% distinct(variable, variable_long, unit)
+
+# create all kind of dates and 
+#df$unit %>% unique()
+
+df <- get_saq_observations(site = sites_kiel$site, start = 1970, valid_only = TRUE) %>% filter(!is.na(unit)) %>%
+  mutate(datetime=date,
+         date=as_date(datetime),
+         month_date=floor_date(datetime, "month"),
+         month=month(datetime),
+         month_name=month(datetime, label = TRUE),
+         year=year(datetime),
+         weekday=substr(weekdays(datetime),1,2),
+         hour=hour(datetime),
+         season=getSeason(datetime),
+         value=case_when(
+           str_detect(unit, "^ug") ~ value/1e3,
+           str_detect(unit, "^ng") ~ value/1e6,
+           str_detect(unit, "^mg") ~ value
+           )
+         )
+
+translate_variable <- processes %>% filter(!is.na(variable_long), !is.na(unit)) %>% distinct(variable, variable_long) %>% mutate(variable_combined=sprintf("%s [%s]", variable_long, variable))
+
+df <- df %>% left_join(translate_variable, by="variable")
+
+df
+```
+
+
+# evolution and trends of air pollution kiel.
+* data from 1970 -> 2020
+* only kiel
+* summary=1 -> hourly data
+* filtered for top 10 air pollutants over the complete timeframe
+* sum of emission per air pollutant per year
+
+```{r, fig.width=12, fig.height=7, warning=FALSE}
+# top 10 air pollutions over all time
+filter_variables <- df %>% filter(summary==1) %>% group_by(variable_combined) %>% summarise(sum_value=sum(value, na.rm = TRUE)) %>% arrange(desc(sum_value)) %>% head(10)
+
+df %>% filter(variable_combined==filter_variables$variable_combined, summary==1, year!=2021) %>% group_by(variable_combined, year) %>% summarise(sum_value=sum(value, na.rm = TRUE)) %>%
+  ggplot(aes(year, sum_value, color=variable_combined)) +
+  geom_line(size=1) +
+  scale_color_brewer(palette = "Paired") +
+  labs(x="Year", y=bquote("Chemical concentration (" ~ frac(mg,m^3) ~ ")"), colour="Air Pollutants", title="Chemical concentrations in the air over the years in Kiel") +
+  theme_bw() +
+  theme(plot.title = element_text(size=18, face="bold", hjust = 0.5),
+        axis.text = element_text(size=16),
+        axis.title = element_text(size=16),
+        legend.title = element_text(size=13, face="bold"),
+        legend.text = element_text(size=12)
+    )
+
+# most common summaries (summary -> 20: daily; summary -> 1: hourly)
+#df %>% group_by(variable, summary) %>% count() %>% group_by(summary) %>% summarise(n_distinct_variables=length(variable)) %>% arrange(desc(n_distinct_variables))
+```
+
+
+# seasonal, weekly, and hourly patterns of NO2 etc in germany.
+* data from 1970 -> 2020
+* only kiel
+* summary=1 -> hourly data
+* filtered for top 10 air pollutants over the complete timeframe
+* timeframes: hourly/weekdays/monthly
+* avg air pollution over timeframes
+* normalized data to be able to compare the different air pollutants
+
+```{r, fig.width=12, fig.height=7, warning=FALSE}
+grid.arrange(
+  # p1 - hours
+  df %>% filter(variable_combined==filter_variables$variable_combined, summary==1) %>% group_by(variable_combined, hour) %>% summarise(avg_value=mean(value)) %>% mutate(avg_value=scale(avg_value)) %>%
+  ggplot(aes(x=hour, y=variable_combined, fill=avg_value)) +
+  geom_tile() +
+  theme_minimal() +
+  scale_fill_distiller(palette = "Reds", direction = 1, breaks = seq(-1.5, 2, 3.5), labels = c("low", "high")) +
+  labs(x="Time (h)", y="Air Pollutants", title="Hourly, weekly and monthly patterns of chemical concentrations in the air in Kiel over all years", fill="avg chemical\nconcentration") +
+  theme(plot.title = element_text(size=14, face="bold", hjust = 1),
+        axis.text = element_text(size=10),
+        axis.title = element_text(size=10),
+        legend.position = "right"
+        ),
+  # p2 - weekdays
+  df %>% filter(variable_combined==filter_variables$variable_combined, summary==1) %>% group_by(variable_combined, weekday) %>% summarise(avg_value=mean(value))%>% mutate(avg_value=scale(avg_value)) %>%
+  ggplot(aes(x=weekday, y=variable_combined, fill=avg_value)) +
+  geom_tile() +
+  theme_minimal() +
+  scale_fill_distiller(palette = "Reds", direction = 1) +
+  labs(x="Weekday", y="Air Pollutants") +
+  theme(axis.text = element_text(size=10),
+        axis.title = element_text(size=10),
+        legend.position = "none"
+    ),
+    # p3 - months
+  df %>% filter(variable_combined==filter_variables$variable_combined, summary==1) %>% group_by(variable_combined, month_name) %>% summarise(avg_value=mean(value))%>% mutate(avg_value=scale(avg_value)) %>%
+  ggplot(aes(x=month_name, y=variable_combined, fill=avg_value)) +
+  geom_tile() +
+  theme_minimal() +
+  scale_fill_distiller(palette = "Reds", direction = 1) +
+  labs(x="Month", y="Air Pollutants") +
+  theme(axis.text = element_text(size=10),
+        axis.title = element_text(size=10),
+        legend.position = "none"
+    ),
+  nrow = 3)
+```
+
+
+# comparision of emissions across Germany to Kiel and other Cities YTD.
+* data from 2020 -> 2021 filtered to YTD
+* complete germany
+* extracted some cities with regex
+* summary=1 -> hourly data
+* first plot kiel (other cities) compared to germany, which has nearly zero impact to the overall emissions
+* second plot to show kiel in comparision to other cities
+
+```{r, warning=FALSE}
+sites_germany <- sites %>% filter(country_iso_code=="DE") %>% distinct(site, site_name)
+
+df_germany <- get_saq_observations(site = sites_germany$site, start = 2020, valid_only = TRUE) %>% filter(!is.na(unit)) %>%
+  mutate(datetime=date,
+         date=as_date(datetime),
+         month_date=floor_date(datetime, "month"),
+         month=month(datetime),
+         month_name=month(datetime, label = TRUE),
+         year=year(datetime),
+         weekday=substr(weekdays(datetime),1,2),
+         hour=hour(datetime),
+         season=getSeason(datetime),
+         value=case_when(
+           str_detect(unit, "^ug") ~ value/1e3,
+           str_detect(unit, "^ng") ~ value/1e6,
+           str_detect(unit, "^mg") ~ value
+           )
+         )
+
+translate_variable <- processes %>% filter(!is.na(variable_long), !is.na(unit)) %>% distinct(variable, variable_long) %>% mutate(variable_combined=sprintf("%s [%s]", variable_long, variable))
+
+df_germany <- df_germany %>% left_join(translate_variable, by="variable")
+
+#df_germany
+```
+
+```{r, fig.width=12, fig.height=7, warning=FALSE}
+df2 <- df_germany %>% filter(summary==1, variable_combined==filter_variables$variable_combined, date>=now() - years(1)) %>%
+  inner_join(sites_germany, by="site") %>%
+  mutate(city=ifelse(
+  str_detect(site_name, "^[Kk]iel\\b"), "Kiel",
+             ifelse(str_detect(site_name, "^[Bb]erlin\\b|^[Bb]\\b"), "Berlin",
+                               ifelse(str_detect(site_name, "^[Hh]amburg\\b|^[Hh]{2}\b"), "Hamburg",
+                                      ifelse(str_detect(site_name, "^[Mm][üu]e?nchen\\b"), "München",
+                                             ifelse(str_detect(site_name, "^[Bb]remen\\b"), "Bremen",
+                                                    ifelse(str_detect(site_name, "^[Dd]resden\\b"), "Dresden", 
+                                                           ifelse(str_detect(site_name, "^[Hh]ann?over\\b"), "Hannover",
+                                                                  ifelse(str_detect(site_name, "^[Kk][öo]e?ln\\b"), "Köln", "Not Defined")))))))))
+
+grid.arrange(
+  df2 %>% group_by(month_date, city) %>% summarise(sum_value=sum(value)) %>%
+    ggplot(aes(x=month_date, y=sum_value, fill=city)) +
+    geom_area() +
+    scale_color_brewer(palette = "Paired") +
+    labs(x="Date", y=bquote("Sum chemical concentration (" ~ frac(mg,m^3) ~ ")"), title="All chemical concentrations combined in Germany in comparision to Kiel (and other Cities) YTD", colour="Air Pollutants") +
+    theme_bw() +
+    theme(plot.title = element_text(size=14, face="bold", hjust = .1),
+        axis.text = element_text(size=8),
+        axis.title = element_text(size=8),
+        legend.position = "right",
+        legend.key.size = unit(5, 'mm')
+        ),
+  df2 %>% filter(city!="Not Defined") %>% group_by(month_date, city) %>% summarise(sum_value=sum(value)) %>%
+    ggplot(aes(x=month_date, y=sum_value, color=city)) +
+    geom_line(size=1) +
+    labs(x="Date", y=bquote("Sum chemical concentration (" ~ frac(mg,m^3) ~ ")")) +
+    theme_bw() +
+    theme(axis.text = element_text(size=8),
+        axis.title = element_text(size=8),
+        legend.position = "none"
+        ),
+  nrow=2
+)
+```
+
+
+
+
+
+
+
+
+
+
